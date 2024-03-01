@@ -1,5 +1,13 @@
 package org.goncharov;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Queue;
@@ -9,44 +17,57 @@ import java.util.concurrent.TimeUnit;
 
 public class CrptApi {
     public static void main(String[] args) {
-        CrptApi rateLimiter = new CrptApi(TimeUnit.SECONDS, 2);
-        for (int i = 0; i < 10; i++) {
-            final int requestId = i;
-            rateLimiter.makeRequest("Request " + requestId);
-        }
+        Description description = new Description("1234567890");
 
+        // Создаем список продуктов
+        List<Product> products = new ArrayList<>();
+        products.add(new Product("cert1", "2024-02-28", "12345", "owner_inn1", "producer_inn1",
+                "2024-01-01", "tnved_code1", "uit_code1", "uitu_code1"));
+        products.add(new Product("cert2", "2024-02-27", "54321", "owner_inn2", "producer_inn2",
+                "2024-01-02", "tnved_code2", "uit_code2", "uitu_code2"));
+
+        // Создаем объект Document
+        Document document = new Document(description, "doc_id1", "status1", "type1",
+                true, "owner_inn", "participant_inn", "producer_inn",
+                "2024-02-28", "production_type1", products, "2024-03-01", "reg_number1");
+        CrptApi crptApi = new CrptApi(TimeUnit.SECONDS, 1);
+//        for (int i = 0; i < 10; i++) {
+//            final int requestId = i;
+//            crptApi.create("Request " + requestId);
+//        }
+        crptApi.create(document);
     }
 
     private TimeUnit timeUnit;
     //todo добавить валидацию, что число в рамках инт
     private int requestLimit;
-
-    private Queue<String> requestQueue;
+    private HttpClient httpClient;
+    private ObjectMapper objectMapper;
+    private Queue<Document> requestQueue;
     private ScheduledExecutorService scheduler;
-  //  private int processedRequests = 0;
+
+    private final String url = "https://ismp.crpt.ru/api/v3/lk/documents/create";
+
+
     public CrptApi(TimeUnit timeUnit, int requestLimit) {
         this.timeUnit = timeUnit;
         this.requestLimit = requestLimit;
+        this.httpClient = HttpClient.newHttpClient();
+        this.objectMapper = new ObjectMapper();
         this.requestQueue = new LinkedList<>();
         this.scheduler = Executors.newScheduledThreadPool(1);
         start();
     }
 
-    public synchronized void makeRequest(String requestData) {
-        requestQueue.offer(requestData);
-        System.out.println("Request added to queue: " + requestData);
-
+    public synchronized void create(Document doc) {
+        requestQueue.offer(doc);
+        System.out.println("Request added to queue: " + doc);
     }
 
     private void start() {
         scheduler.scheduleAtFixedRate(this::processQueue, 0, 1, timeUnit);
     }
 
-//    private void stop() {
-//        if (!scheduler.isShutdown()) {
-//            scheduler.shutdown();
-//        }
-//    }
 
     private void processQueue() {
         int processedRequests = 0;
@@ -54,14 +75,24 @@ public class CrptApi {
             processRequest(requestQueue.poll());
             processedRequests++;
         }
-       // stop();
     }
 
-    private void processRequest(String requestData) {
-        System.out.println("Processing request: " + requestData);
+    private void processRequest(Document dto) {
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(dto)))
+                    .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            System.out.println(response.body());
+        } catch (IOException | InterruptedException e){
+            e.printStackTrace();
+        }
+        System.out.println("Processing request: " + dto);
     }
 
-    public class DocumentDTO {
+    public static class Document {
         private Description description;
         private String doc_id;
         private String doc_status;
@@ -76,6 +107,29 @@ public class CrptApi {
         private String reg_date;
         private String reg_number;
 
+        public Document(Description description, String doc_id,
+                        String doc_status, String doc_type, boolean importRequest,
+                        String owner_inn, String participant_inn,
+                        String producer_inn, String production_date,
+                        String production_type, List<Product> products,
+                        String reg_date, String reg_number) {
+            this.description = description;
+            this.doc_id = doc_id;
+            this.doc_status = doc_status;
+            this.doc_type = doc_type;
+            this.importRequest = importRequest;
+            this.owner_inn = owner_inn;
+            this.participant_inn = participant_inn;
+            this.producer_inn = producer_inn;
+            this.production_date = production_date;
+            this.production_type = production_type;
+            this.products = products;
+            this.reg_date = reg_date;
+            this.reg_number = reg_number;
+        }
+
+        public Document() {
+        }
 
         public Description getDescription() {
             return description;
@@ -182,9 +236,12 @@ public class CrptApi {
         }
     }
 
-    class Description {
+    static class Description {
         private String participantInn;
 
+        public Description(String participantInn) {
+            this.participantInn = participantInn;
+        }
 
         public String getParticipantInn() {
             return participantInn;
@@ -195,7 +252,23 @@ public class CrptApi {
         }
     }
 
-    class Product {
+    static class Product {
+
+        public Product(String certificate_document, String certificate_document_date,
+                       String certificate_document_number, String owner_inn,
+                       String producer_inn, String production_date, String tnved_code,
+                       String uit_code, String uitu_code) {
+            this.certificate_document = certificate_document;
+            this.certificate_document_date = certificate_document_date;
+            this.certificate_document_number = certificate_document_number;
+            this.owner_inn = owner_inn;
+            this.producer_inn = producer_inn;
+            this.production_date = production_date;
+            this.tnved_code = tnved_code;
+            this.uit_code = uit_code;
+            this.uitu_code = uitu_code;
+        }
+
         private String certificate_document;
         private String certificate_document_date;
         private String certificate_document_number;
