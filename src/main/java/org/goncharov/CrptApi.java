@@ -7,43 +7,36 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Queue;
+import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 public class CrptApi {
-    public static void main(String[] args) {
-        Description description = new Description("1234567890");
-
-        // Создаем список продуктов
+    public static void main(String[] args) throws InterruptedException {
+        Description description = new Description("123456789");
         List<Product> products = new ArrayList<>();
         products.add(new Product("cert1", "2024-02-28", "12345", "owner_inn1", "producer_inn1",
                 "2024-01-01", "tnved_code1", "uit_code1", "uitu_code1"));
         products.add(new Product("cert2", "2024-02-27", "54321", "owner_inn2", "producer_inn2",
                 "2024-01-02", "tnved_code2", "uit_code2", "uitu_code2"));
+        CrptApi crptApi = new CrptApi(TimeUnit.MINUTES, 1);
+        for (int i = 0; i < 10; i++) {
+            Document document = new Document(description, "doc_id1", "status1", "type1",
+                    true, "owner_inn", "participant_inn", "producer_inn",
+                    "2024-02-28", "production_type1", products, "2024-03-01", "reg_number1");
+            document.doc_id = String.valueOf(i);
+            crptApi.create(document);
+        }
 
-        // Создаем объект Document
-        Document document = new Document(description, "doc_id1", "status1", "type1",
-                true, "owner_inn", "participant_inn", "producer_inn",
-                "2024-02-28", "production_type1", products, "2024-03-01", "reg_number1");
-        CrptApi crptApi = new CrptApi(TimeUnit.SECONDS, 1);
-//        for (int i = 0; i < 10; i++) {
-//            final int requestId = i;
-//            crptApi.create("Request " + requestId);
-//        }
-        crptApi.create(document);
+
     }
-
-    private TimeUnit timeUnit;
+    private final TimeUnit timeUnit;
     //todo добавить валидацию, что число в рамках инт
-    private int requestLimit;
-    private HttpClient httpClient;
-    private ObjectMapper objectMapper;
-    private Queue<Document> requestQueue;
+    private final int requestLimit;
+    private final HttpClient httpClient;
+    private final ObjectMapper objectMapper;
+    private final Queue<Document> requestQueue;
     private ScheduledExecutorService scheduler;
 
     private final String url = "https://ismp.crpt.ru/api/v3/lk/documents/create";
@@ -55,11 +48,13 @@ public class CrptApi {
         this.httpClient = HttpClient.newHttpClient();
         this.objectMapper = new ObjectMapper();
         this.requestQueue = new LinkedList<>();
-        this.scheduler = Executors.newScheduledThreadPool(1);
-        start();
     }
 
     public synchronized void create(Document doc) {
+        if(scheduler == null){
+            scheduler = Executors.newScheduledThreadPool(1);
+            start();
+        }
         requestQueue.offer(doc);
         System.out.println("Request added to queue: " + doc);
     }
@@ -74,6 +69,10 @@ public class CrptApi {
         while (!requestQueue.isEmpty() && processedRequests < requestLimit) {
             processRequest(requestQueue.poll());
             processedRequests++;
+        }
+        if (requestQueue.isEmpty()){
+            scheduler.shutdown();
+            scheduler = null;
         }
     }
 
@@ -234,14 +233,17 @@ public class CrptApi {
         public void setReg_number(String reg_number) {
             this.reg_number = reg_number;
         }
+
+        @Override
+        public String toString() {
+            return "Document{" +
+                    "doc_id='" + doc_id + '\'' +
+                    '}';
+        }
     }
 
     static class Description {
         private String participantInn;
-
-        public Description(String participantInn) {
-            this.participantInn = participantInn;
-        }
 
         public String getParticipantInn() {
             return participantInn;
@@ -250,6 +252,11 @@ public class CrptApi {
         public void setParticipantInn(String participantInn) {
             this.participantInn = participantInn;
         }
+
+        public Description(String participantInn) {
+            this.participantInn = participantInn;
+        }
+
     }
 
     static class Product {
@@ -278,7 +285,6 @@ public class CrptApi {
         private String tnved_code;
         private String uit_code;
         private String uitu_code;
-
 
         public String getCertificate_document() {
             return certificate_document;
